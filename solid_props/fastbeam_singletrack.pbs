@@ -1,0 +1,70 @@
+#!/usr/bin/bash 
+#PBS -l nodes=node34:ppn=12
+#PBS -j oe
+#PBS -k oe
+#PBS -e $PBS_O_WORKDIR
+
+scratch=/tmp
+
+cd $PBS_O_WORKDIR 
+
+USERID=`whoami`
+
+PROC_TYPE=`uname -p`
+
+echo "Current working directory is `pwd`" 
+echo "Running on `hostname`" 
+echo "Starting run at: `date`" 
+echo "Processor type: `uname -p`"
+
+. /usr/local/Modules/3.2.6/init/bash
+#if [ $PROC_TYPE == "x86_64" ] ; then
+   module load null modules tools/torque-maui abaqus/abaqus_2018 compilers/64/intel18.0 mpcci/mpcci-4.4.1 compilers/python2.7 tecplot/tecplot.2016
+   echo "64bit selected"
+#else
+#   module load null modules tools/torque-maui abaqus/abaqus_2020 compilers/64/intel18.0 mpcci/mpcci-4.4.1 compilers/python2.7
+#   echo "32bit selected"
+#fi
+
+if [ ! -d $scratch ] ; then 
+	echo "No local scratch filesystem" 
+	exit 1 
+fi 
+
+# Create the scratch directory and make current. 
+mkdir "$scratch"/"$PBS_JOBID"."$USERID"
+chmod go-rwx "$scratch"/"$PBS_JOBID"."$USERID" 
+cd "$scratch"/"$PBS_JOBID"."$USERID" 
+
+ABAQUS_EXTRA_OPT="interactive"
+ABAQUS_INPUT_PREFIX=fastbeam
+ABAQUS_USER_ROUTINE=fastbeam_heatflux
+ABAQUS_JOB_PREFIX=fastbeam_multi
+ABAQUS_CMD=abq2018
+
+# Copy your ABAQUS input file to the scratch directory. 
+cp $PBS_O_WORKDIR/$ABAQUS_INPUT_PREFIX* . 
+cp $PBS_O_WORKDIR/geom_info_V2.inp .
+cp $PBS_O_WORKDIR/laser_pos.txt .
+cp $PBS_O_WORKDIR/*.inp .
+cp $PBS_O_WORKDIR/*.for .
+
+if [ -f $PBS_O_WORKDIR/abaqus_v6.env ] ; then
+	cp $PBS_O_WORKDIR/abaqus_v6.env . 
+fi
+
+# Run ABAQUS.
+cp $PBS_O_WORKDIR/$ABAQUS_USER_ROUTINE.* .
+# /opt/abaqus/Commands/abaqus inp=$ABAQUS_INPUT_PREFIX j=$ABAQUS_JOB_PREFIX user=$ABAQUS_USER_ROUTINE interactive 
+$ABAQUS_CMD inp=$ABAQUS_INPUT_PREFIX j=$ABAQUS_JOB_PREFIX user=$ABAQUS_USER_ROUTINE $ABAQUS_EXTRA_OPT
+
+# Copy any output files, such as restart files, back to a 
+# directory.  Check 1st, copy and remove the scratch directory. 
+if [ ! -d $PBS_O_WORKDIR/output ] ; then 
+	echo "Output directory not found" 
+	echo "Creating $PBS_O_WORKDIR/output" 
+	mkdir $PBS_O_WORKDIR/output
+fi
+
+cp -R * $PBS_O_WORKDIR/output && ( echo "Removing scratch directory $scratch/$PBS_JOBID.$USERID" ; /bin/rm -R "$scratch"/"$PBS_JOBID"."$USERID" ) || ( echo Unable to copy to data directory.  Check `hostname` for the run )
+
